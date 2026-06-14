@@ -26,6 +26,8 @@ DEFAULT_CONFIG = {
     # Prompt language control: zh, en, or auto
     "prompt_language": os.getenv("TA_LANGUAGE", "zh"),
     "prompt_language_by_provider": {},
+    "enable_agent_knowledge_profiles": os.getenv("TA_AGENT_KNOWLEDGE", "1").lower()
+    in ("1", "true", "yes", "on"),
     
     # Provider routing trace logs
     "provider_trace": os.getenv("TA_TRACE", "1").lower() in ("1", "true", "yes", "on"),

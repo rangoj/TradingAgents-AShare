@@ -3,6 +3,7 @@ from typing import Any, Mapping
 from tradingagents.dataflows.config import get_config
 
 from .en import PROMPTS as EN_PROMPTS
+from .knowledge import apply_knowledge_snippet
 from .zh import PROMPTS as ZH_PROMPTS
 
 
@@ -25,7 +26,6 @@ def get_prompt(key: str, config: Mapping[str, Any] | None = None) -> str:
     lang = _resolve_language(config)
     if lang == "zh":
         if key in ZH_PROMPTS:
-            return ZH_PROMPTS[key]
+            return apply_knowledge_snippet(key, ZH_PROMPTS[key], config)
         return EN_PROMPTS[key]
     return EN_PROMPTS[key]
-
