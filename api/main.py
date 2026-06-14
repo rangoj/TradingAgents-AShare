@@ -11,7 +11,7 @@ from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor
 from copy import deepcopy
 from datetime import datetime, timedelta, timezone
-from threading import Lock
+from threading import Lock, Thread
 from fastapi import Body
 from typing import Any, Dict, List, Literal, Optional, Tuple
 from uuid import uuid4
@@ -251,13 +251,23 @@ async def lifespan(app: FastAPI):
         _log("=" * 70)
 
     _report_version_stats()
-    # Pre-load trade calendar (uses mini_racer/V8 which is not thread-safe)
-    from tradingagents.dataflows.trade_calendar import _load_cn_trade_dates
-    _load_cn_trade_dates()
-    _log("Trade calendar pre-loaded.")
-    # Pre-load stock + ETF name map
-    await asyncio.to_thread(_load_cn_stock_map)
-    _log("Stock map pre-loaded on startup.")
+    preload_market_data_default = "1" if os.getenv("APP_ENV", "development").strip().lower() == "production" else "0"
+    preload_trade_calendar = os.getenv("TA_PRELOAD_TRADE_CALENDAR", preload_market_data_default).strip().lower()
+    if preload_trade_calendar in ("1", "true", "yes", "on"):
+        # Pre-load trade calendar (uses mini_racer/V8 which is not thread-safe)
+        from tradingagents.dataflows.trade_calendar import _load_cn_trade_dates
+        _load_cn_trade_dates()
+        _log("Trade calendar pre-loaded.")
+    else:
+        _log("Trade calendar preload skipped; it will be loaded on demand.")
+    # Pre-load stock + ETF name map only when requested. AkShare can block or
+    # fail on external network calls, which should not prevent local login.
+    preload_stock_map = os.getenv("TA_PRELOAD_STOCK_MAP", preload_market_data_default).strip().lower()
+    if preload_stock_map in ("1", "true", "yes", "on"):
+        await asyncio.to_thread(_load_cn_stock_map)
+        _log("Stock map pre-loaded on startup.")
+    else:
+        _log("Stock map preload skipped; it will be loaded on demand.")
     yield
     _log("Shutting down: Cleaning up resources...")
     _executor.shutdown(wait=True)
@@ -328,6 +338,8 @@ _background_tasks: set = set()
 _cn_stock_map: Optional[Dict[str, str]] = None  # name -> "XXXXXX.SH/SZ"
 _cn_stock_reverse_map: Optional[Dict[str, str]] = None  # code -> name
 _cn_stock_map_lock = Lock()
+_cn_stock_map_warmup_lock = Lock()
+_cn_stock_map_warmup_started = False
 
 
 def _utcnow_iso() -> str:
@@ -367,6 +379,45 @@ def _serialize_datetime_utc(value: Optional[datetime]) -> Optional[str]:
 
 _cn_stock_map_loaded_at: float = 0  # timestamp of last load
 _STOCK_MAP_TTL = 7 * 86400  # 7 days
+_STOCK_MAP_CACHE_FILE = Path(os.getenv("TA_STOCK_MAP_CACHE_FILE", "data/stock_name_cache.json"))
+
+
+def _restore_cn_stock_map_from_disk() -> bool:
+    """Restore the stock name map from local disk cache when available."""
+    global _cn_stock_map, _cn_stock_reverse_map, _cn_stock_map_loaded_at
+    if not _STOCK_MAP_CACHE_FILE.exists():
+        return False
+    try:
+        raw = json.loads(_STOCK_MAP_CACHE_FILE.read_text(encoding="utf-8"))
+        items = raw.get("items") if isinstance(raw, dict) else raw
+        if not isinstance(items, dict):
+            return False
+        restored = {
+            str(name).strip(): _normalize_symbol(str(code).strip())
+            for name, code in items.items()
+            if str(name).strip() and str(code).strip()
+        }
+        if not restored:
+            return False
+        _cn_stock_map = restored
+        _cn_stock_reverse_map = {code: name for name, code in restored.items()}
+        _cn_stock_map_loaded_at = raw.get("loaded_at", 0) if isinstance(raw, dict) else _STOCK_MAP_CACHE_FILE.stat().st_mtime
+        if not isinstance(_cn_stock_map_loaded_at, (int, float)) or _cn_stock_map_loaded_at <= 0:
+            _cn_stock_map_loaded_at = _STOCK_MAP_CACHE_FILE.stat().st_mtime
+        _log(f"[StockMap] Restored {len(restored)} names from local cache.")
+        return True
+    except Exception as exc:
+        _log(f"[StockMap] Local cache restore skipped: {exc}")
+        return False
+
+
+def _save_cn_stock_map_to_disk(items: Dict[str, str], loaded_at: float) -> None:
+    try:
+        _STOCK_MAP_CACHE_FILE.parent.mkdir(parents=True, exist_ok=True)
+        payload = {"loaded_at": loaded_at, "items": items}
+        _STOCK_MAP_CACHE_FILE.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+    except Exception as exc:
+        _log(f"[StockMap] Local cache save skipped: {exc}")
 
 
 def _load_cn_stock_map() -> Dict[str, str]:
@@ -386,6 +437,8 @@ def _load_cn_stock_map() -> Dict[str, str]:
     with _cn_stock_map_lock:
         if _cn_stock_map is not None and (now - _cn_stock_map_loaded_at) <= _STOCK_MAP_TTL:
             return _cn_stock_map
+        if _restore_cn_stock_map_from_disk():
+            return _cn_stock_map or {}
         result: Dict[str, str] = {}
         try:
             import akshare as ak
@@ -416,6 +469,7 @@ def _load_cn_stock_map() -> Dict[str, str]:
             _cn_stock_map = result
             _cn_stock_reverse_map = {code: name for name, code in result.items()}
             _cn_stock_map_loaded_at = now
+            _save_cn_stock_map_to_disk(result, now)
             _log(f"[StockMap] Loaded {stock_count} stocks + {fund_count} ETFs/funds = {len(result)} total.")
         except Exception as e:
             _log(f"[StockMap] Failed to load: {e}")
@@ -441,6 +495,38 @@ def _get_reverse_stock_map_cached_only() -> Dict[str, str]:
     if _cn_stock_map is None or _cn_stock_reverse_map is None:
         return {}
     return dict(_cn_stock_reverse_map)
+
+
+def _get_reverse_stock_map_for_display() -> Dict[str, str]:
+    """Return code→name mapping for UI display.
+
+    Startup stays fast because the map is not preloaded in local development,
+    and list pages must not block on AkShare/BSE network calls. They return the
+    local cache immediately and trigger one background warmup when cold.
+    """
+    cached = _get_reverse_stock_map_cached_only()
+    if cached:
+        return cached
+    _start_stock_map_warmup_once()
+    return {}
+
+
+def _start_stock_map_warmup_once() -> None:
+    global _cn_stock_map_warmup_started
+    with _cn_stock_map_warmup_lock:
+        if _cn_stock_map_warmup_started:
+            return
+        _cn_stock_map_warmup_started = True
+
+    def _warmup() -> None:
+        try:
+            _load_cn_stock_map()
+        finally:
+            global _cn_stock_map_warmup_started
+            with _cn_stock_map_warmup_lock:
+                _cn_stock_map_warmup_started = False
+
+    Thread(target=_warmup, name="stock-map-warmup", daemon=True).start()
 
 
 def _search_cn_stock_by_name(query: str) -> Optional[str]:
@@ -2273,6 +2359,22 @@ def _extract_symbol_and_date(text: str) -> tuple[Optional[str], Optional[str]]:
     return None, date
 
 
+def _extract_symbol_and_date_local_fallback(text: str) -> tuple[Optional[str], Optional[str]]:
+    """Best-effort local stock/date extraction that does not depend on an LLM."""
+    symbol, date = _extract_symbol_and_date(text)
+    if symbol and re.search(r"\d{6}", symbol):
+        return symbol, date
+
+    try:
+        local_code = _search_cn_stock_by_name(text)
+        if local_code:
+            return local_code, date
+    except Exception as exc:
+        _log(f"[StockExtract fallback] local stock map lookup failed: {exc}")
+
+    return symbol, date
+
+
 def _sse_pack(event: str, data: Dict[str, Any]) -> str:
     return f"event: {event}\ndata: {json.dumps(data, ensure_ascii=False)}\n\n"
 
@@ -2784,6 +2886,9 @@ async def _ai_extract_symbol_and_date_streaming(
     llm_focus_areas: List[str] = []
     llm_specific_questions: List[str] = []
     llm_user_context: Dict[str, Any] = {}
+    direct_symbol, direct_date = _extract_symbol_and_date(text)
+    if direct_symbol and re.search(r"\d{6}", direct_symbol):
+        return direct_symbol, direct_date or today, llm_horizons, llm_focus_areas, llm_specific_questions, llm_user_context
 
     try:
         client = create_llm_client(
@@ -2845,6 +2950,9 @@ async def _ai_extract_symbol_and_date_streaming(
         _log(f"[StockExtract streaming] LLM failed: {e}")
 
     if not llm_name:
+        fallback_symbol, fallback_date = await asyncio.to_thread(_extract_symbol_and_date_local_fallback, text)
+        if fallback_symbol:
+            return fallback_symbol, fallback_date or today, llm_horizons, llm_focus_areas, llm_specific_questions, llm_user_context
         return None, None, llm_horizons, llm_focus_areas, llm_specific_questions, llm_user_context
 
     _log(f"[StockExtract] extracted name='{llm_name}', date={llm_date}, horizons={llm_horizons}")
@@ -2882,6 +2990,11 @@ def _ai_extract_symbol_and_date(
     llm_focus_areas: List[str] = []
     llm_specific_questions: List[str] = []
     llm_user_context: Dict[str, Any] = {}
+    direct_symbol, direct_date = _extract_symbol_and_date(text)
+    if direct_symbol and re.search(r"\d{6}", direct_symbol):
+        _log(f"[StockExtract] Direct local code: {direct_symbol}")
+        return direct_symbol, direct_date or today, llm_horizons, llm_focus_areas, llm_specific_questions, llm_user_context
+
     try:
         client = create_llm_client(
             provider=config.get("llm_provider", "openai"),
@@ -2941,6 +3054,10 @@ def _ai_extract_symbol_and_date(
 
     if not llm_name:
         _log(f"[StockExtract] LLM returned no stock name for: '{text[:40]}'")
+        fallback_symbol, fallback_date = _extract_symbol_and_date_local_fallback(text)
+        if fallback_symbol:
+            _log(f"[StockExtract] Local fallback resolved: {fallback_symbol}")
+            return fallback_symbol, fallback_date or today, llm_horizons, llm_focus_areas, llm_specific_questions, llm_user_context
         return None, None, llm_horizons, llm_focus_areas, llm_specific_questions, llm_user_context
 
     _log(f"[StockExtract] LLM extracted name='{llm_name}', date={llm_date}, horizons={llm_horizons}")
@@ -3220,7 +3337,7 @@ def list_reports(
         skip=skip,
         limit=limit,
     )
-    code_to_name = _get_reverse_stock_map_cached_only()
+    code_to_name = _get_reverse_stock_map_for_display()
     for r in reports:
         r.name = code_to_name.get(r.symbol, r.symbol)
         _attach_job_runtime_state(r, str(getattr(r, "id", "")))
@@ -3238,6 +3355,9 @@ def list_latest_reports_by_symbols(
         user_id=current_user.id,
         symbols=body.symbols,
     )
+    code_to_name = _get_reverse_stock_map_for_display()
+    for report in reports:
+        report.name = code_to_name.get(report.symbol, report.symbol)
     return {"reports": reports}
 
 
@@ -3253,7 +3373,7 @@ def get_report_endpoint(
         raise HTTPException(status_code=404, detail="报告不存在")
     if str(report.status or "") in report_service.ACTIVE_REPORT_STATUSES and not _get_job(report_id):
         report = report_service.finalize_orphan_report(db, report)
-    code_to_name = _get_reverse_stock_map()
+    code_to_name = _get_reverse_stock_map_for_display()
     report.name = code_to_name.get(report.symbol, report.symbol)
     _attach_job_runtime_state(report, report_id)
     return report
@@ -3906,7 +4026,7 @@ def _build_manual_imported_user_context(db: Session, user_id: str, symbol: str) 
 def _attach_stock_names(items: List[dict], code_to_name: Dict[str, str]) -> List[dict]:
     for item in items:
         symbol = str(item.get("symbol") or "").upper()
-        item["name"] = code_to_name.get(symbol, symbol or item.get("name") or "")
+        item["name"] = code_to_name.get(symbol) or item.get("name") or symbol
     return items
 
 
@@ -3986,7 +4106,7 @@ def list_watchlist(
     db: Session = Depends(get_db),
 ):
     items = watchlist_service.list_watchlist(db, current_user.id)
-    _attach_stock_names(items, _get_reverse_stock_map())
+    _attach_stock_names(items, _get_reverse_stock_map_for_display())
     return {"items": items}
 
 
@@ -4087,7 +4207,7 @@ def list_scheduled_analyses(
     db: Session = Depends(get_db),
 ):
     items = scheduled_service.list_scheduled(db, current_user.id)
-    _attach_stock_names(items, _get_reverse_stock_map_cached_only())
+    _attach_stock_names(items, _get_reverse_stock_map_for_display())
     return {"items": _annotate_scheduled_with_imported_context(items, db, current_user.id)}
 
 
@@ -4096,7 +4216,7 @@ def get_portfolio_overview(
     current_user: UserDB = Depends(_require_api_user),
     db: Session = Depends(get_db),
 ):
-    code_to_name = _get_reverse_stock_map_cached_only()
+    code_to_name = _get_reverse_stock_map_for_display()
 
     watchlist_items = watchlist_service.list_watchlist(db, current_user.id)
     _attach_stock_names(watchlist_items, code_to_name)

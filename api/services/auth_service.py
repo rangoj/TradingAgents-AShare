@@ -89,6 +89,8 @@ def normalize_email(email: str) -> str:
 
 
 def generate_login_code() -> str:
+    if is_local_auth_code_enabled():
+        return local_auth_code()
     return f"{secrets.randbelow(1000000):06d}"
 
 
@@ -192,11 +194,29 @@ def get_env_alias(keys: list[str], default: str = "") -> str:
     return default
 
 
+def is_production_env() -> bool:
+    return os.getenv("APP_ENV", "development").strip().lower() == "production"
+
+
+def is_local_auth_code_enabled() -> bool:
+    value = os.getenv("TA_AUTH_LOCAL_CODE", "1" if not is_production_env() else "0")
+    return value.strip().lower() in ("1", "true", "yes", "on")
+
+
+def local_auth_code() -> str:
+    code = os.getenv("TA_AUTH_FIXED_CODE", "123456").strip()
+    return code if code.isdigit() and len(code) == 6 else "123456"
+
+
 def send_login_code(email: str, code: str) -> Optional[str]:
+    if is_local_auth_code_enabled():
+        print(f"[auth] local login code for {email}: {code}")
+        return code
+
     smtp_host = get_env_alias(["MAIL_HOST", "MAIL_SERVER", "SMTP_HOST"]).strip()
     if not smtp_host:
         print(f"[auth] login code for {email}: {code}")
-        if os.getenv("APP_ENV", "development") != "production":
+        if not is_production_env():
             return code
         return None
 
@@ -231,7 +251,7 @@ def send_login_code(email: str, code: str) -> Optional[str]:
     except Exception as e:
         print(f"[auth] failed to send email via {smtp_host}: {e}")
         print(f"[auth] falling back to console log. code for {email}: {code}")
-        if os.getenv("APP_ENV", "development") != "production":
+        if not is_production_env():
             return code
         return None
 

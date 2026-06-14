@@ -241,6 +241,7 @@ deploy/
 tradingagents.db
 tradingagents.db-shm
 tradingagents.db-wal
+data/stock_name_cache.json
 deploy/deploy.env
 
 .playwright-cli/

@@ -253,6 +253,41 @@ class TestChatCompletionsEndpoint:
         assert r.status_code in (401, 403)
 
 
+class TestStockExtractionFallback:
+    def test_direct_a_share_code_skips_llm(self):
+        from api import main
+
+        with patch("tradingagents.llm_clients.factory.create_llm_client") as create_client:
+            symbol, trade_date, horizons, *_ = main._ai_extract_symbol_and_date(
+                "帮我分析 600519.SH 短线机会",
+                {},
+            )
+
+        assert symbol == "600519.SH"
+        assert trade_date is not None
+        assert horizons == ["short"]
+        create_client.assert_not_called()
+
+    def test_empty_llm_result_uses_local_name_fallback(self):
+        from api import main
+
+        fake_llm = MagicMock()
+        fake_llm.invoke.return_value = MagicMock(content='{"stock_name": null, "date": null}')
+        fake_client = MagicMock()
+        fake_client.get_llm.return_value = fake_llm
+
+        with patch("tradingagents.llm_clients.factory.create_llm_client", return_value=fake_client), \
+             patch("api.main._search_cn_stock_by_name", return_value="600519.SH"):
+            symbol, trade_date, horizons, *_ = main._ai_extract_symbol_and_date(
+                "帮我分析贵州茅台短线机会",
+                {},
+            )
+
+        assert symbol == "600519.SH"
+        assert trade_date is not None
+        assert horizons == ["short"]
+
+
 class TestOpenAPISchema:
     def test_analyze_request_has_query_field(self):
         client = _get_client()

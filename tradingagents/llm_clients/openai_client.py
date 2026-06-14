@@ -12,6 +12,16 @@ from .base_client import BaseLLMClient
 from .validators import validate_model
 
 
+def _env_int(name: str, default: int) -> int:
+    raw = os.environ.get(name)
+    if raw is None or raw.strip() == "":
+        return default
+    try:
+        return int(raw)
+    except ValueError:
+        return default
+
+
 class UnifiedChatOpenAI(ChatOpenAI):
     """ChatOpenAI subclass that strips incompatible params for certain models."""
 
@@ -80,15 +90,18 @@ class OpenAIClient(BaseLLMClient):
         self.provider = provider.lower()
 
     def get_llm(self) -> Any:
-        """Return configured ChatOpenAI instance with long timeout and no retries."""
+        """Return configured ChatOpenAI instance with long timeout and bounded retries."""
         llm_kwargs = {"model": self.model}
 
         if not UnifiedChatOpenAI._is_reasoning_model(self.model):
             llm_kwargs["temperature"] = self.kwargs.get("temperature", 0)
 
-        # ── 极致稳定性配置 ──
-        # 1. 禁用一切重试：避免 Thinking 模型重复扣费或因重连导致的状态丢失
-        llm_kwargs["max_retries"] = 0
+        # Network hiccups from OpenAI-compatible providers are common during long
+        # multi-agent runs. Keep retries bounded and configurable.
+        llm_kwargs["max_retries"] = self.kwargs.get(
+            "max_retries",
+            _env_int("TA_LLM_MAX_RETRIES", 2),
+        )
         
         # 2. 超长超时：默认 300 秒，给足推理模型思考时间
         llm_kwargs["timeout"] = self.kwargs.get("timeout", 300.0)
@@ -98,7 +111,10 @@ class OpenAIClient(BaseLLMClient):
         elif self.provider == "openrouter": target_url = "https://openrouter.ai/api/v1"
         elif self.provider == "ollama": target_url = "http://localhost:11434/v1"
         
-        print(f"[LLM Client] Init {self.provider} ({self.model}) at {target_url} (Retries=0, Timeout={llm_kwargs['timeout']}s)")
+        print(
+            f"[LLM Client] Init {self.provider} ({self.model}) at {target_url} "
+            f"(Retries={llm_kwargs['max_retries']}, Timeout={llm_kwargs['timeout']}s)"
+        )
 
         if self.provider == "xai":
             llm_kwargs["base_url"] = "https://api.x.ai/v1"
