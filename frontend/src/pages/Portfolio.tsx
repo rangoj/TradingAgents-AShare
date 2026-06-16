@@ -492,7 +492,7 @@ export default function Portfolio() {
                             <h2 className="font-semibold text-slate-900 dark:text-slate-100">添加自选</h2>
                         </div>
                         <div className="space-y-3" ref={dropdownRef}>
-                            <div className="relative flex items-center gap-2">
+                            <div className="relative flex flex-col gap-2 sm:flex-row sm:items-center">
                                 <div className="relative flex-1">
                                     <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
                                     <input
@@ -501,7 +501,7 @@ export default function Portfolio() {
                                         onChange={e => setSearchQuery(e.target.value)}
                                         onFocus={() => searchResults.length > 0 && !isBatchInput && setShowDropdown(true)}
                                         onKeyDown={e => e.key === 'Enter' && trimmedQuery && submitWatchlistInput()}
-                                        placeholder="搜索代码/名称，批量粘贴，或点右侧📷上传截图识别"
+                                        placeholder="搜索代码/名称，批量粘贴，或上传截图识别"
                                         className="input pl-9 pr-10 w-full"
                                     />
                                     <button
@@ -526,7 +526,7 @@ export default function Portfolio() {
                                     type="button"
                                     onClick={submitWatchlistInput}
                                     disabled={!trimmedQuery || addingWatchlist}
-                                    className="btn-primary inline-flex items-center justify-center gap-2 whitespace-nowrap shrink-0"
+                                    className="btn-primary inline-flex w-full shrink-0 items-center justify-center gap-2 whitespace-nowrap sm:w-auto"
                                 >
                                     {addingWatchlist ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}
                                     {isBatchInput ? '批量添加' : '添加'}
@@ -752,7 +752,7 @@ export default function Portfolio() {
                                             : 'border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800/60'
                                     }`}
                                 >
-                                    <div className="flex items-center gap-3">
+                                    <div className="flex flex-wrap items-center gap-3">
                                         <input
                                             type="checkbox"
                                             checked={selectedScheduledIdSet.has(task.id)}
@@ -761,7 +761,7 @@ export default function Portfolio() {
                                             className="h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
                                         />
 
-                                        <div className="flex-1 min-w-0">
+                                        <div className="min-w-[180px] flex-1">
                                             <div className="flex items-center gap-2">
                                                 <p className="font-medium text-sm text-slate-900 dark:text-slate-100">{task.name}</p>
                                                 <span className="text-xs text-slate-400">{task.symbol}</span>

@@ -73,7 +73,7 @@ export default function DebateDrawer({ debate, onClose }: DebateDrawerProps) {
             />
 
             {/* Drawer */}
-            <div className="fixed top-0 right-0 h-full w-1/2 max-w-[720px] min-w-[400px] dark bg-slate-900 border-l border-slate-700 shadow-2xl z-50 flex flex-col animate-in slide-in-from-right duration-300">
+            <div className="fixed top-0 right-0 h-full w-full dark bg-slate-900 border-l border-slate-700 shadow-2xl z-50 flex flex-col animate-in slide-in-from-right duration-300 sm:w-[82vw] sm:max-w-[720px] lg:w-1/2">
                 {/* Header */}
                 <div className="flex items-center justify-between px-5 py-4 border-b border-slate-800">
                     <div className="flex items-center gap-3">
@@ -89,7 +89,7 @@ export default function DebateDrawer({ debate, onClose }: DebateDrawerProps) {
                 </div>
 
                 {/* Participant pills */}
-                <div className="flex items-center gap-2 px-5 py-3 border-b border-slate-800/50">
+                <div className="flex flex-wrap items-center gap-2 px-5 py-3 border-b border-slate-800/50">
                     {participants.map(p => (
                         <span key={p.label} className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium border ${p.cls}`}>
                             <span>{p.emoji}</span>

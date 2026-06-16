@@ -113,8 +113,8 @@ export default function Header() {
     }
 
     return (
-        <header className="h-16 sticky top-0 z-40 border-b border-slate-200/80 dark:border-slate-800 bg-white/88 dark:bg-slate-950/78 backdrop-blur-xl">
-            <div className="h-full px-6 flex items-center justify-between">
+        <header className="h-14 sticky top-0 z-40 border-b border-slate-200/80 dark:border-slate-800 bg-white/88 dark:bg-slate-950/78 backdrop-blur-xl sm:h-16">
+            <div className="h-full px-3 flex items-center justify-between sm:px-4 md:px-6">
                 <div className="flex items-center gap-3">
                     <div className="hidden md:flex items-center gap-4">
                         <div className="flex items-center gap-2.5">
@@ -144,7 +144,7 @@ export default function Header() {
                             </button>
 
                             {announcementOpen && (
-                                <div className="absolute right-0 top-full mt-3 w-[360px] p-4 rounded-3xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 shadow-[0_24px_80px_rgba(15,23,42,0.18)] z-50">
+                                <div className="absolute right-0 top-full mt-3 w-[calc(100vw-1.5rem)] max-w-[360px] p-4 rounded-3xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 shadow-[0_24px_80px_rgba(15,23,42,0.18)] z-50">
                                     <div className="flex items-start justify-between gap-3 mb-3">
                                         <div>
                                             <div className="flex items-center gap-2">

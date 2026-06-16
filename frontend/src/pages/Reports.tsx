@@ -427,7 +427,7 @@ export default function Reports() {
                     />
                 )}
                 {/* 返回按钮 + 标题 */}
-                <div className="flex items-center gap-4">
+                <div className="flex flex-wrap items-center gap-3 sm:gap-4">
 
                     <button
                         onClick={() => {
@@ -439,7 +439,7 @@ export default function Reports() {
                         <ChevronLeft className="w-4 h-4" />
                         返回列表
                     </button>
-                    <h1 className="text-xl font-bold text-slate-900 dark:text-slate-100">
+                    <h1 className="min-w-0 flex-1 text-lg font-bold text-slate-900 dark:text-slate-100 sm:text-xl">
                         {selectedReport.name || selectedReport.symbol} 分析报告
                         {selectedReport.name && selectedReport.name !== selectedReport.symbol && (
                             <span className="ml-2 text-base font-normal text-slate-400">{selectedReport.symbol}</span>
@@ -447,7 +447,7 @@ export default function Reports() {
                     </h1>
                     <button
                         onClick={() => exportReport(selectedReport)}
-                        className="ml-auto flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors"
+                        className="flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors sm:ml-auto"
                     >
                         <Download className="w-4 h-4" />
                         导出 Markdown
@@ -455,7 +455,7 @@ export default function Reports() {
                 </div>
 
                 {/* 元信息 */}
-                <div className="flex items-center gap-4 text-sm text-slate-500">
+                <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-slate-500">
                     <span>分析日期：{selectedReport.trade_date}</span>
                     <span>生成时间：{selectedReport.created_at ? new Date(selectedReport.created_at).toLocaleString('zh-CN') : '-'}</span>
                 </div>
@@ -581,7 +581,7 @@ export default function Reports() {
             {!loading && !error && (
                 <div className="card overflow-hidden">
                     <div className="overflow-x-auto">
-                        <table className="w-full">
+                        <table className="min-w-[860px] w-full">
                             <thead>
                                 <tr className="border-b border-slate-200 dark:border-slate-700">
                                     {['股票', '分析日期', '决策建议', '置信度', '目标价/止损价', '生成时间', '操作'].map(h => (
