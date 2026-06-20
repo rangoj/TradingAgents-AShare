@@ -511,6 +511,58 @@ def get_latest_reports_by_symbols(
     return [latest_by_symbol[symbol] for symbol in normalized_symbols if symbol in latest_by_symbol]
 
 
+def get_report_groups_by_symbol(
+    db: Session,
+    user_id: Optional[str] = None,
+    skip: int = 0,
+    limit: int = 100,
+) -> List[dict[str, Any]]:
+    grouped_query = db.query(
+        ReportDB.symbol.label("symbol"),
+        func.count(ReportDB.id).label("report_count"),
+        func.max(ReportDB.created_at).label("latest_created_at"),
+        func.max(ReportDB.updated_at).label("latest_updated_at"),
+    )
+    if user_id:
+        grouped_query = grouped_query.filter(ReportDB.user_id == user_id)
+
+    grouped_rows = (
+        grouped_query
+        .group_by(ReportDB.symbol)
+        .order_by(func.max(ReportDB.created_at).desc())
+        .offset(skip)
+        .limit(limit)
+        .all()
+    )
+    symbols = [str(row.symbol or "").upper() for row in grouped_rows if str(row.symbol or "").strip()]
+    latest_reports = get_latest_reports_by_symbols(db, symbols, user_id=user_id)
+    latest_by_symbol = {str(report.symbol or "").upper(): report for report in latest_reports}
+
+    groups: List[dict[str, Any]] = []
+    for row in grouped_rows:
+        symbol = str(row.symbol or "").upper()
+        if not symbol:
+            continue
+        groups.append({
+            "symbol": symbol,
+            "report_count": int(row.report_count or 0),
+            "latest_created_at": row.latest_created_at,
+            "latest_updated_at": row.latest_updated_at,
+            "latest_report": latest_by_symbol.get(symbol),
+        })
+    return groups
+
+
+def count_report_groups(
+    db: Session,
+    user_id: Optional[str] = None,
+) -> int:
+    query = db.query(func.count(func.distinct(ReportDB.symbol)))
+    if user_id:
+        query = query.filter(ReportDB.user_id == user_id)
+    return query.scalar() or 0
+
+
 def count_reports(
     db: Session,
     user_id: Optional[str] = None,

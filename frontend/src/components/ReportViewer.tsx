@@ -4,6 +4,7 @@ import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { useAnalysisStore } from '@/stores/analysisStore'
 import type { ReportDetail } from '@/types'
+import { exportReportAsPdf, type ReportExportSource } from '@/utils/reportPdfExport'
 import { sanitizeReportMarkdown } from '@/utils/reportText'
 
 const REPORT_SECTIONS = [
@@ -89,19 +90,7 @@ export default function ReportViewer({ reportData, activeSection }: ReportViewer
     const handleExport = () => {
         const source = isHistorical ? reportData : report
         if (!source) return
-        const text = REPORT_SECTIONS
-            .filter(s => source[s.key as keyof typeof source])
-            .map(s => `## ${s.title}\n\n${source[s.key as keyof typeof source]}`)
-            .join('\n\n---\n\n') + `\n\n---\n\n${REPORT_DISCLAIMER}\n`
-        const blob = new Blob([text], { type: 'text/markdown' })
-        const url = URL.createObjectURL(blob)
-        const a = document.createElement('a')
-        a.href = url
-        a.download = `analysis-${isHistorical ? reportData?.symbol : report?.symbol || 'report'}.md`
-        document.body.appendChild(a)
-        a.click()
-        document.body.removeChild(a)
-        URL.revokeObjectURL(url)
+        exportReportAsPdf(source as ReportExportSource, REPORT_SECTIONS, REPORT_DISCLAIMER)
     }
 
     // ── Historical mode: full accordion ──────────────────────────────────────
@@ -125,7 +114,7 @@ export default function ReportViewer({ reportData, activeSection }: ReportViewer
                     </div>
                     <button onClick={handleExport} className="btn-secondary flex items-center gap-2 text-sm py-1.5 px-3">
                         <Download className="w-4 h-4" />
-                        导出
+                        导出 PDF
                     </button>
                 </div>
                 <div className="space-y-3">
@@ -196,7 +185,7 @@ export default function ReportViewer({ reportData, activeSection }: ReportViewer
                 {hasAnyContent && (
                     <button onClick={handleExport} className="btn-secondary flex items-center gap-2 text-sm py-1.5 px-3">
                         <Download className="w-4 h-4" />
-                        导出全部
+                        导出全部 PDF
                     </button>
                 )}
             </div>

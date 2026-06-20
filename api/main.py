@@ -801,6 +801,24 @@ class ReportListResponse(BaseModel):
     reports: List[ReportResponse]
 
 
+class ReportGroupResponse(BaseModel):
+    symbol: str
+    name: Optional[str] = None
+    report_count: int
+    latest_created_at: Optional[datetime] = None
+    latest_updated_at: Optional[datetime] = None
+    latest_report: Optional[ReportResponse] = None
+
+    @field_serializer("latest_created_at", "latest_updated_at", when_used="json")
+    def serialize_group_datetimes(self, value: Optional[datetime]) -> Optional[str]:
+        return _serialize_datetime_utc(value)
+
+
+class ReportGroupListResponse(BaseModel):
+    total: int
+    groups: List[ReportGroupResponse]
+
+
 class ReportBatchDeleteRequest(BaseModel):
     report_ids: List[str] = Field(default_factory=list)
 
@@ -3359,6 +3377,33 @@ def list_latest_reports_by_symbols(
     for report in reports:
         report.name = code_to_name.get(report.symbol, report.symbol)
     return {"reports": reports}
+
+
+@app.get("/v1/reports/groups", response_model=ReportGroupListResponse)
+def list_report_groups(
+    skip: int = Query(0, ge=0),
+    limit: int = Query(100, ge=1, le=1000),
+    db: Session = Depends(get_db),
+    current_user: UserDB = Depends(_require_api_user),
+):
+    """按股票代码聚合历史报告，分组统计来自 reports 数据表."""
+    total = report_service.count_report_groups(db=db, user_id=current_user.id)
+    groups = report_service.get_report_groups_by_symbol(
+        db=db,
+        user_id=current_user.id,
+        skip=skip,
+        limit=limit,
+    )
+    code_to_name = _get_reverse_stock_map_for_display()
+    for group in groups:
+        symbol = group["symbol"]
+        name = code_to_name.get(symbol, symbol)
+        group["name"] = name
+        latest_report = group.get("latest_report")
+        if latest_report:
+            latest_report.name = name
+            _attach_job_runtime_state(latest_report, str(getattr(latest_report, "id", "")))
+    return {"total": total, "groups": groups}
 
 
 @app.get("/v1/reports/{report_id}", response_model=ReportDetailResponse)

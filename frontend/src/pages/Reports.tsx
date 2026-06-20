@@ -1,15 +1,16 @@
-import { FileText, Download, Trash2, Search, ChevronLeft, ChevronRight, Loader2, History, Clock3 } from 'lucide-react'
+import { FileText, Download, Trash2, Search, ChevronLeft, ChevronRight, Loader2, History, Clock3, FolderOpen, List } from 'lucide-react'
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import TaskProgressBanner from '@/components/TaskProgressBanner'
 import { api } from '@/services/api'
-import type { Report, ReportDetail } from '@/types'
+import type { Report, ReportDetail, ReportGroup } from '@/types'
 import DecisionCard from '@/components/DecisionCard'
 import ReportViewer from '@/components/ReportViewer'
 import RiskRadar from '@/components/RiskRadar'
 import KeyMetrics from '@/components/KeyMetrics'
 import { useAuthStore } from '@/stores/authStore'
 import { advanceProgress, getReportRunProgress } from '@/utils/progressFeedback'
+import { exportReportAsPdf, type ReportExportSource } from '@/utils/reportPdfExport'
 
 type ProgressState = {
     status: 'idle' | 'loading' | 'success' | 'error'
@@ -158,23 +159,19 @@ function exportReport(report: ReportDetail) {
         { key: 'sentiment_report', title: '舆情分析报告' },
         { key: 'news_report', title: '新闻分析报告' },
         { key: 'fundamentals_report', title: '基本面分析报告' },
+        { key: 'macro_report', title: '宏观板块报告' },
+        { key: 'smart_money_report', title: '主力资金报告' },
+        { key: 'volume_price_report', title: '量价分析报告' },
+        { key: 'game_theory_report', title: '博弈分析报告' },
         { key: 'investment_plan', title: '研究团队决策' },
         { key: 'trader_investment_plan', title: '交易团队计划' },
         { key: 'final_trade_decision', title: '最终交易决策' },
     ]
-    const text = sections
-        .filter(s => report[s.key as keyof ReportDetail])
-        .map(s => `## ${s.title}\n\n${report[s.key as keyof ReportDetail]}`)
-        .join('\n\n---\n\n')
-    const blob = new Blob([text], { type: 'text/markdown' })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url
-    a.download = `analysis-${report.symbol}-${report.trade_date}.md`
-    document.body.appendChild(a)
-    a.click()
-    document.body.removeChild(a)
-    URL.revokeObjectURL(url)
+    exportReportAsPdf(
+        report as unknown as ReportExportSource,
+        sections,
+        '> 免责声明：以上内容由模型基于公开数据、历史信息与预设规则自动生成，仅供研究参考，不构成任何投资建议、收益承诺或实际交易指令。',
+    )
 }
 
 export default function Reports() {
@@ -184,18 +181,25 @@ export default function Reports() {
     setSearchParamsRef.current = setSearchParams
     const PAGE_SIZE = 20
     const [searchQuery, setSearchQuery] = useState('')
+    const [viewMode, setViewMode] = useState<'reports' | 'groups'>('reports')
+    const [selectedGroup, setSelectedGroup] = useState<ReportGroup | null>(null)
     const [page, setPage] = useState(0)
     const [reports, setReports] = useState<Report[]>([])
+    const [reportGroups, setReportGroups] = useState<ReportGroup[]>([])
     const [total, setTotal] = useState(0)
+    const [groupTotal, setGroupTotal] = useState(0)
     const [selectedReport, setSelectedReport] = useState<ReportDetail | null>(null)
     const [loading, setLoading] = useState(false)
+    const [groupsLoading, setGroupsLoading] = useState(false)
     const [detailLoading, setDetailLoading] = useState(false)
     const [error, setError] = useState<string | null>(null)
+    const [groupsError, setGroupsError] = useState<string | null>(null)
     const [deleting, setDeleting] = useState<string | null>(null)
     const [symbolHistory, setSymbolHistory] = useState<Report[]>([])
     const [listProgress, setListProgress] = useState<ProgressState>(IDLE_PROGRESS)
     const [detailProgress, setDetailProgress] = useState<ProgressState>(IDLE_PROGRESS)
 
+    const selectedGroupSymbol = selectedGroup?.symbol
     const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE))
 
     useEffect(() => {
@@ -230,18 +234,22 @@ export default function Reports() {
             setListProgress({
                 status: 'loading',
                 progress: 12,
-                detail: `正在加载第 ${targetPage + 1} 页报告列表...`,
+                detail: selectedGroupSymbol
+                    ? `正在加载 ${selectedGroup?.name || selectedGroupSymbol} 的历史报告...`
+                    : `正在加载第 ${targetPage + 1} 页报告列表...`,
             })
         }
         try {
-            const response = await api.getReports(undefined, targetPage * PAGE_SIZE, PAGE_SIZE)
+            const response = await api.getReports(selectedGroupSymbol, targetPage * PAGE_SIZE, PAGE_SIZE)
             setReports(response.reports)
             setTotal(response.total)
             if (!silent) {
                 setListProgress({
                     status: 'success',
                     progress: 100,
-                    detail: `已获取 ${response.reports.length} 条报告记录`,
+                    detail: selectedGroupSymbol
+                        ? `已获取 ${selectedGroup?.name || selectedGroupSymbol} 的 ${response.total} 条历史记录`
+                        : `已获取 ${response.reports.length} 条报告记录`,
                 })
             }
         } catch (err) {
@@ -259,9 +267,32 @@ export default function Reports() {
                 setLoading(false)
             }
         }
-    }, [])
+    }, [selectedGroup?.name, selectedGroupSymbol])
 
     useEffect(() => { fetchReports(page) }, [fetchReports, page])
+
+    const fetchReportGroups = useCallback(async (options?: { silent?: boolean }) => {
+        const silent = options?.silent === true
+        if (!silent) {
+            setGroupsLoading(true)
+            setGroupsError(null)
+        }
+        try {
+            const response = await api.getReportGroups(0, 1000)
+            setReportGroups(response.groups)
+            setGroupTotal(response.total)
+        } catch (err) {
+            if (!silent) {
+                setGroupsError(err instanceof Error ? err.message : '获取股票分组失败')
+            }
+        } finally {
+            if (!silent) {
+                setGroupsLoading(false)
+            }
+        }
+    }, [])
+
+    useEffect(() => { void fetchReportGroups() }, [fetchReportGroups])
 
     const handleDelete = async (e: React.MouseEvent, reportId: string) => {
         e.stopPropagation()
@@ -276,6 +307,7 @@ export default function Reports() {
                 if (reports.length === 1 && page > 0) setPage(p => p - 1)
                 return newTotal
             })
+            void fetchReportGroups({ silent: true })
         } catch (err) {
             alert(err instanceof Error ? err.message : '删除失败')
         } finally {
@@ -346,6 +378,20 @@ export default function Reports() {
         } catch {}
     }
 
+    const handleSelectGroup = (group: ReportGroup) => {
+        setSelectedGroup(group)
+        setViewMode('reports')
+        setSearchQuery('')
+        setPage(0)
+    }
+
+    const handleBackToGroups = () => {
+        setSelectedGroup(null)
+        setViewMode('groups')
+        setSearchQuery('')
+        setPage(0)
+    }
+
     // Only on mount: restore report from URL
     const initialReportId = useRef(searchParams.get('report'))
     useEffect(() => {
@@ -359,6 +405,10 @@ export default function Reports() {
     const filteredReports = reports.filter(r => {
         const q = searchQuery.toLowerCase()
         return r.symbol.toLowerCase().includes(q) || (r.name?.toLowerCase().includes(q) ?? false)
+    })
+    const filteredGroups = reportGroups.filter(group => {
+        const q = searchQuery.toLowerCase()
+        return group.symbol.toLowerCase().includes(q) || (group.name?.toLowerCase().includes(q) ?? false)
     })
     const hasActiveReport = reports.some(report => report.status === 'pending' || report.status === 'running')
 
@@ -450,7 +500,7 @@ export default function Reports() {
                         className="flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors sm:ml-auto"
                     >
                         <Download className="w-4 h-4" />
-                        导出 Markdown
+                        导出 PDF
                     </button>
                 </div>
 
@@ -530,9 +580,15 @@ export default function Reports() {
         <div className="space-y-6">
             <div className="flex items-center justify-between">
                 <div>
-                    <h1 className="text-2xl font-bold text-slate-900 dark:text-slate-100">历史报告</h1>
+                    <h1 className="text-2xl font-bold text-slate-900 dark:text-slate-100">
+                        {selectedGroup ? `${selectedGroup.name || selectedGroup.symbol} 历史报告` : '历史报告'}
+                    </h1>
                     <p className="text-slate-500 dark:text-slate-400 mt-1">
-                        {user?.email ? `${user.email} 的私有分析记录 · 共 ${total} 份` : `共 ${total} 份分析报告`}
+                        {selectedGroup
+                            ? `${selectedGroup.symbol} · 共 ${total} 份分析记录`
+                            : user?.email
+                                ? `${user.email} 的私有分析记录 · 共 ${total} 份，${groupTotal} 个股票分组`
+                                : `共 ${total} 份分析报告，${groupTotal} 个股票分组`}
                     </p>
                 </div>
             </div>
@@ -540,22 +596,144 @@ export default function Reports() {
             {/* 搜索 */}
             <div className="card">
                 <div className="flex flex-col gap-4">
-                    <div className="relative max-w-md">
-                        <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-                        <input
-                            type="text"
-                            value={searchQuery}
-                            onChange={e => setSearchQuery(e.target.value)}
-                            placeholder="搜索股票代码或名称..."
-                            className="input w-full pl-10"
-                        />
+                    <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+                        <div className="flex flex-wrap items-center gap-2">
+                            <button
+                                type="button"
+                                onClick={() => {
+                                    setViewMode('reports')
+                                    setSelectedGroup(null)
+                                    setSearchQuery('')
+                                    setPage(0)
+                                }}
+                                className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-2 text-sm font-medium transition-colors ${
+                                    viewMode === 'reports' && !selectedGroup
+                                        ? 'bg-blue-50 text-blue-600 dark:bg-blue-500/10 dark:text-blue-300'
+                                        : 'bg-slate-100 text-slate-500 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700'
+                                }`}
+                            >
+                                <List className="h-4 w-4" />
+                                全部报告
+                            </button>
+                            <button
+                                type="button"
+                                onClick={() => {
+                                    setViewMode('groups')
+                                    setSelectedGroup(null)
+                                    setSearchQuery('')
+                                }}
+                                className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-2 text-sm font-medium transition-colors ${
+                                    viewMode === 'groups' || selectedGroup
+                                        ? 'bg-blue-50 text-blue-600 dark:bg-blue-500/10 dark:text-blue-300'
+                                        : 'bg-slate-100 text-slate-500 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700'
+                                }`}
+                            >
+                                <FolderOpen className="h-4 w-4" />
+                                按股票分组
+                            </button>
+                            {selectedGroup && (
+                                <button
+                                    type="button"
+                                    onClick={handleBackToGroups}
+                                    className="inline-flex items-center gap-1.5 rounded-lg px-3 py-2 text-sm font-medium text-slate-500 transition-colors hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800"
+                                >
+                                    <ChevronLeft className="h-4 w-4" />
+                                    返回分组
+                                </button>
+                            )}
+                        </div>
+                        <div className="relative w-full max-w-md">
+                            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                            <input
+                                type="text"
+                                value={searchQuery}
+                                onChange={e => setSearchQuery(e.target.value)}
+                                placeholder={viewMode === 'groups' && !selectedGroup ? '搜索股票分组...' : '搜索股票代码或名称...'}
+                                className="input w-full pl-10"
+                            />
+                        </div>
                     </div>
 
                 </div>
             </div>
 
+            {/* 股票分组 */}
+            {viewMode === 'groups' && !selectedGroup && (
+                <div className="space-y-4">
+                    {groupsLoading && (
+                        <div className="card py-12">
+                            <div className="flex flex-col items-center gap-4">
+                                <Loader2 className="w-8 h-8 text-blue-500 animate-spin" />
+                                <p className="text-slate-500">加载股票分组中...</p>
+                            </div>
+                        </div>
+                    )}
+
+                    {groupsError && !groupsLoading && (
+                        <div className="card py-12 text-center">
+                            <p className="text-red-500 mb-4">{groupsError}</p>
+                            <button
+                                onClick={() => fetchReportGroups()}
+                                className="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors"
+                            >
+                                重试
+                            </button>
+                        </div>
+                    )}
+
+                    {!groupsLoading && !groupsError && (
+                        <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
+                            {filteredGroups.map(group => {
+                                const latest = group.latest_report
+                                return (
+                                    <button
+                                        key={group.symbol}
+                                        type="button"
+                                        onClick={() => handleSelectGroup(group)}
+                                        className="rounded-lg border border-slate-200 bg-white p-4 text-left shadow-sm transition-all hover:-translate-y-0.5 hover:border-blue-200 hover:shadow-md dark:border-slate-800 dark:bg-slate-900 dark:hover:border-blue-500/40"
+                                    >
+                                        <div className="flex items-start justify-between gap-3">
+                                            <div className="min-w-0">
+                                                <p className="truncate text-base font-semibold text-slate-900 dark:text-slate-100">{group.name || group.symbol}</p>
+                                                <p className="mt-0.5 text-xs text-slate-400">{group.symbol}</p>
+                                            </div>
+                                            <span className="rounded-full bg-blue-50 px-2.5 py-1 text-xs font-semibold text-blue-600 dark:bg-blue-500/10 dark:text-blue-300">
+                                                {group.report_count} 份
+                                            </span>
+                                        </div>
+                                        <div className="mt-4 grid grid-cols-2 gap-3 text-sm">
+                                            <div>
+                                                <p className="text-xs text-slate-400">最近日期</p>
+                                                <p className="mt-1 font-medium text-slate-700 dark:text-slate-200">{latest?.trade_date || '-'}</p>
+                                            </div>
+                                            <div>
+                                                <p className="text-xs text-slate-400">最近建议</p>
+                                                <div className="mt-1">{latest ? renderStatusBadge(latest) : <span className="text-slate-400">-</span>}</div>
+                                            </div>
+                                        </div>
+                                        <div className="mt-4 flex items-center justify-between border-t border-slate-100 pt-3 text-xs text-slate-400 dark:border-slate-800">
+                                            <span>{group.latest_created_at ? new Date(group.latest_created_at).toLocaleString('zh-CN') : '暂无生成时间'}</span>
+                                            <span className="text-blue-500">查看全部历史</span>
+                                        </div>
+                                    </button>
+                                )
+                            })}
+                        </div>
+                    )}
+
+                    {!groupsLoading && !groupsError && filteredGroups.length === 0 && (
+                        <div className="card py-12 text-center">
+                            <FolderOpen className="w-12 h-12 text-slate-300 dark:text-slate-600 mx-auto mb-4" />
+                            <p className="text-slate-500 dark:text-slate-400">
+                                {searchQuery ? '没有匹配的股票分组' : '暂无股票分组'}
+                            </p>
+                        </div>
+                    )}
+                </div>
+            )}
+
             {/* 加载中 */}
-            {loading && (
+            {viewMode === 'reports' && loading && (
                 <div className="card py-12">
                     <div className="flex flex-col items-center gap-4">
                         <Loader2 className="w-8 h-8 text-blue-500 animate-spin" />
@@ -565,7 +743,7 @@ export default function Reports() {
             )}
 
             {/* 错误 */}
-            {error && !loading && (
+            {viewMode === 'reports' && error && !loading && (
                 <div className="card py-12 text-center">
                     <p className="text-red-500 mb-4">{error}</p>
                     <button
@@ -578,7 +756,7 @@ export default function Reports() {
             )}
 
             {/* 报告表格 */}
-            {!loading && !error && (
+            {viewMode === 'reports' && !loading && !error && (
                 <div className="card overflow-hidden">
                     <div className="overflow-x-auto">
                         <table className="min-w-[860px] w-full">

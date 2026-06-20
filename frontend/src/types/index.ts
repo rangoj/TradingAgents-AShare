@@ -358,6 +358,20 @@ export interface ReportListResponse {
     reports: Report[]
 }
 
+export interface ReportGroup {
+    symbol: string
+    name?: string
+    report_count: number
+    latest_created_at?: string
+    latest_updated_at?: string
+    latest_report?: Report | null
+}
+
+export interface ReportGroupListResponse {
+    total: number
+    groups: ReportGroup[]
+}
+
 export interface AnnouncementItem {
     title: string
     detail: string

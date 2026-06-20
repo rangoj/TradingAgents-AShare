@@ -562,6 +562,22 @@ class TestReportsEndpoint:
         assert body["reports"][0]["decision"] == "SELL"
         assert body["reports"][1]["decision"] == "BUY"
 
+    def test_report_groups_are_aggregated_by_symbol_from_database(self):
+        self._create_report("600519.SH", "2026-03-28", "HOLD")
+        self._create_report("600519.SH", "2026-03-30", "BUY")
+        self._create_report("300750.SZ", "2026-03-29", "SELL")
+
+        response = self.client.get("/v1/reports/groups", headers=self.headers)
+
+        assert response.status_code == 200
+        body = response.json()
+        groups = {item["symbol"]: item for item in body["groups"]}
+        assert body["total"] >= 2
+        assert groups["600519.SH"]["report_count"] == 2
+        assert groups["600519.SH"]["latest_report"]["decision"] == "BUY"
+        assert groups["300750.SZ"]["report_count"] == 1
+        assert groups["300750.SZ"]["latest_report"]["decision"] == "SELL"
+
     def test_batch_delete_endpoint_removes_multiple_reports(self):
         first = self._create_report("600519.SH", "2026-03-28", "HOLD")
         second = self._create_report("300750.SZ", "2026-03-29", "SELL")
