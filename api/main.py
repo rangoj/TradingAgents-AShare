@@ -3497,7 +3497,6 @@ class BacktestRequest(BaseModel):
     end_date: str
     selected_analysts: List[str] = ["market", "news", "fundamentals", "sentiment"]
     hold_days: int = 5
-    sample_interval: int = 7
     config_overrides: Optional[Dict[str, Any]] = None
 
 
@@ -3507,40 +3506,118 @@ def submit_backtest(
     db: Session = Depends(get_db),
     current_user: UserDB = Depends(_require_api_user),
 ) -> Dict:
-    """提交历史回测任务，返回 job_id."""
+    """提交完整历史回测任务，返回 job_id."""
+    symbol = request.symbol.strip().upper()
+    if not symbol:
+        raise HTTPException(status_code=400, detail="symbol is required")
+    code_to_name = _get_reverse_stock_map()
+    if symbol not in code_to_name:
+        raise HTTPException(status_code=400, detail=f"未知的股票代码: {symbol}")
     config = _build_runtime_config(request.config_overrides or {}, user_id=current_user.id, db=db)
-    job_id = _bt.submit(
-        symbol=request.symbol,
-        start_date=request.start_date,
-        end_date=request.end_date,
-        selected_analysts=request.selected_analysts,
-        hold_days=request.hold_days,
-        sample_interval=request.sample_interval,
-        config=config,
-    )
+    try:
+        job_id = _bt.submit(
+            db=db,
+            user_id=current_user.id,
+            symbol=symbol,
+            start_date=request.start_date,
+            end_date=request.end_date,
+            selected_analysts=request.selected_analysts,
+            hold_days=request.hold_days,
+            config=config,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     return {"job_id": job_id, "status": "pending"}
 
 
 @app.get("/v1/backtest")
-def list_backtests() -> Dict:
-    """列出所有回测任务."""
-    jobs = _bt.list_jobs()
-    return {"jobs": jobs, "total": len(jobs)}
+def list_backtests(
+    skip: int = 0,
+    limit: int = 50,
+    db: Session = Depends(get_db),
+    current_user: UserDB = Depends(_require_api_user),
+) -> Dict:
+    """列出当前用户的回测任务."""
+    jobs = _bt.list_jobs(db, current_user.id, skip=skip, limit=limit)
+    code_to_name = _get_reverse_stock_map_for_display()
+    for job in jobs:
+        job["name"] = code_to_name.get(job["symbol"], job["symbol"])
+    return {"jobs": jobs, "total": _bt.count_jobs(db, current_user.id)}
+
+
+@app.get("/v1/backtest/estimate")
+def estimate_backtest_dates(
+    start_date: str,
+    end_date: str,
+    current_user: UserDB = Depends(_require_api_user),
+) -> Dict:
+    """估算日期范围内需要运行的完整交易日样本数量."""
+    try:
+        dates = _bt.estimate_trading_dates(start_date, end_date)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    return {
+        "total_dates": len(dates),
+        "dates": dates,
+        "max_dates": _bt.MAX_BACKTEST_TRADING_DAYS,
+    }
 
 
 @app.get("/v1/backtest/{job_id}")
-def get_backtest(job_id: str) -> Dict:
+def get_backtest(
+    job_id: str,
+    db: Session = Depends(get_db),
+    current_user: UserDB = Depends(_require_api_user),
+) -> Dict:
     """获取回测任务状态和结果."""
-    job = _bt.get_job(job_id)
+    job = _bt.get_job(db, current_user.id, job_id)
     if not job:
         raise HTTPException(status_code=404, detail="回测任务不存在")
+    code_to_name = _get_reverse_stock_map_for_display()
+    job["name"] = code_to_name.get(job["symbol"], job["symbol"])
+    return job
+
+
+@app.post("/v1/backtest/{job_id}/cancel")
+def cancel_backtest(
+    job_id: str,
+    db: Session = Depends(get_db),
+    current_user: UserDB = Depends(_require_api_user),
+) -> Dict:
+    """停止未完成的回测任务."""
+    job = _bt.cancel_job(db, current_user.id, job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="回测任务不存在")
+    code_to_name = _get_reverse_stock_map_for_display()
+    job["name"] = code_to_name.get(job["symbol"], job["symbol"])
+    return job
+
+
+@app.post("/v1/backtest/{job_id}/records/{record_id}/retry")
+def retry_backtest_record(
+    job_id: str,
+    record_id: str,
+    db: Session = Depends(get_db),
+    current_user: UserDB = Depends(_require_api_user),
+) -> Dict:
+    """重新分析单个回测日期；会先尝试复用同条件历史样本."""
+    config = _build_runtime_config({}, user_id=current_user.id, db=db)
+    job = _bt.retry_record(db, current_user.id, job_id, record_id, config)
+    if not job:
+        raise HTTPException(status_code=404, detail="回测样本不存在")
+    code_to_name = _get_reverse_stock_map_for_display()
+    job["name"] = code_to_name.get(job["symbol"], job["symbol"])
     return job
 
 
 @app.delete("/v1/backtest/{job_id}")
-def delete_backtest(job_id: str) -> Dict:
+def delete_backtest(
+    job_id: str,
+    db: Session = Depends(get_db),
+    current_user: UserDB = Depends(_require_api_user),
+) -> Dict:
     """删除回测任务."""
-    if not _bt.delete_job(job_id):
+    if not _bt.delete_job(db, current_user.id, job_id):
         raise HTTPException(status_code=404, detail="回测任务不存在")
     return {"message": "已删除"}
 

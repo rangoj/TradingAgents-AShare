@@ -125,7 +125,7 @@ class TestScheduled:
             scheduled_service.create_scheduled(db, "user1", "300750.SZ", "long")
 
     def test_max_limit(self, db):
-        for i in range(10):
+        for i in range(20):
             scheduled_service.create_scheduled(db, "user1", f"{600000 + i}.SH")
         with pytest.raises(ValueError, match="上限"):
             scheduled_service.create_scheduled(db, "user1", "000001.SZ")

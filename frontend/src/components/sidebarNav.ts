@@ -1,6 +1,7 @@
 import type { LucideIcon } from 'lucide-react'
 import {
     Activity,
+    BarChart3,
     Briefcase,
     FileText,
     LayoutDashboard,
@@ -19,6 +20,7 @@ export const navItems: SidebarNavItem[] = [
     { path: '/', icon: LayoutDashboard, label: '控制台' },
     { path: '/analysis', icon: Activity, label: '智能分析' },
     { path: '/reports', icon: FileText, label: '历史报告' },
+    { path: '/backtests', icon: BarChart3, label: '回测历史' },
     { path: '/portfolio', icon: Briefcase, label: '自选 & 定时' },
     { path: '/tracking-board', icon: Wallet, label: '跟踪看板' },
     { path: '/feedback', icon: MessageSquare, label: '反馈留言' },

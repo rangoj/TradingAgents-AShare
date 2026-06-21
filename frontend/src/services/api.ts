@@ -1,4 +1,4 @@
-import type { AnalysisRequest, AnalysisResponse, Announcement, AuthUser, AuthVerifyResponse, JobStatus, AnalysisReport, KlineResponse, LatestAnnouncementResponse, PortfolioImportState, PortfolioOverviewResponse, PortfolioPositionInput, Report, ReportDetail, ReportGroupListResponse, ReportListResponse, RuntimeConfig, RuntimeConfigUpdate, RuntimeConfigUpdateResponse, RuntimeWarmupRequest, RuntimeWarmupResponse, WatchlistItem, WatchlistBatchResponse, ScheduledAnalysis, ScheduledBatchTriggerResponse, StockSearchResult, TrackingBoardResponse, UserToken, UserTokenCreateRequest, WecomWarmupRequest, WecomWarmupResponse, FeedbackItem, FeedbackListResponse, FeedbackUnreadResponse } from '@/types'
+import type { AnalysisRequest, AnalysisResponse, Announcement, AuthUser, AuthVerifyResponse, JobStatus, AnalysisReport, BacktestEstimateResponse, BacktestJob, BacktestListResponse, BacktestSubmitResponse, KlineResponse, LatestAnnouncementResponse, PortfolioImportState, PortfolioOverviewResponse, PortfolioPositionInput, Report, ReportDetail, ReportGroupListResponse, ReportListResponse, RuntimeConfig, RuntimeConfigUpdate, RuntimeConfigUpdateResponse, RuntimeWarmupRequest, RuntimeWarmupResponse, WatchlistItem, WatchlistBatchResponse, ScheduledAnalysis, ScheduledBatchTriggerResponse, StockSearchResult, TrackingBoardResponse, UserToken, UserTokenCreateRequest, WecomWarmupRequest, WecomWarmupResponse, FeedbackItem, FeedbackListResponse, FeedbackUnreadResponse } from '@/types'
 
 export function getBaseUrl(): string {
     const envUrl = (import.meta.env.VITE_API_URL as string) || ''
@@ -155,6 +155,54 @@ class ApiService {
         return this.request<Report>('/v1/reports', {
             method: 'POST',
             body: JSON.stringify(report),
+        })
+    }
+
+    // Backtest
+    async getBacktests(skip = 0, limit = 50): Promise<BacktestListResponse> {
+        const params = new URLSearchParams()
+        params.append('skip', skip.toString())
+        params.append('limit', limit.toString())
+        return this.request<BacktestListResponse>(`/v1/backtest?${params}`)
+    }
+
+    async estimateBacktest(startDate: string, endDate: string): Promise<BacktestEstimateResponse> {
+        const params = new URLSearchParams({ start_date: startDate, end_date: endDate })
+        return this.request<BacktestEstimateResponse>(`/v1/backtest/estimate?${params}`)
+    }
+
+    async createBacktest(data: {
+        symbol: string
+        start_date: string
+        end_date: string
+        hold_days: number
+        selected_analysts: string[]
+    }): Promise<BacktestSubmitResponse> {
+        return this.request<BacktestSubmitResponse>('/v1/backtest', {
+            method: 'POST',
+            body: JSON.stringify(data),
+        })
+    }
+
+    async getBacktest(jobId: string): Promise<BacktestJob> {
+        return this.request<BacktestJob>(`/v1/backtest/${jobId}`)
+    }
+
+    async deleteBacktest(jobId: string): Promise<{ message: string }> {
+        return this.request<{ message: string }>(`/v1/backtest/${jobId}`, {
+            method: 'DELETE',
+        })
+    }
+
+    async cancelBacktest(jobId: string): Promise<BacktestJob> {
+        return this.request<BacktestJob>(`/v1/backtest/${jobId}/cancel`, {
+            method: 'POST',
+        })
+    }
+
+    async retryBacktestRecord(jobId: string, recordId: string): Promise<BacktestJob> {
+        return this.request<BacktestJob>(`/v1/backtest/${jobId}/records/${recordId}/retry`, {
+            method: 'POST',
         })
     }
 

@@ -372,6 +372,93 @@ export interface ReportGroupListResponse {
     groups: ReportGroup[]
 }
 
+export interface BacktestStats {
+    total_records: number
+    completed_records: number
+    failed_records: number
+    cancelled_records?: number
+    reused_records?: number
+    scored_records: number
+    accuracy_pct?: number | null
+    actionable_accuracy_pct?: number | null
+    buy_count: number
+    sell_count: number
+    hold_count: number
+    avg_future_return_pct?: number | null
+    avg_strategy_return_pct?: number | null
+    cumulative_strategy_return_pct?: number | null
+    best_strategy_return_pct?: number | null
+    worst_strategy_return_pct?: number | null
+    target_hit_rate_pct?: number | null
+    stop_loss_hit_rate_pct?: number | null
+}
+
+export interface BacktestRecord {
+    id: string
+    job_id: string
+    symbol: string
+    trade_date: string
+    status: 'pending' | 'running' | 'completed' | 'failed' | 'cancelled'
+    error?: string | null
+    decision?: string | null
+    direction?: string | null
+    confidence?: number | null
+    target_price?: number | null
+    stop_loss_price?: number | null
+    entry_price?: number | null
+    exit_price?: number | null
+    future_return_pct?: number | null
+    strategy_return_pct?: number | null
+    max_high?: number | null
+    min_low?: number | null
+    target_hit?: boolean | null
+    stop_loss_hit?: boolean | null
+    is_correct?: boolean | null
+    decision_summary?: string | null
+    result_snapshot?: Partial<AnalysisReport> | null
+    reused_from_job_id?: string | null
+    reused_from_record_id?: string | null
+    created_at?: string
+    updated_at?: string
+}
+
+export interface BacktestJob {
+    id: string
+    job_id: string
+    symbol: string
+    name?: string
+    start_date: string
+    end_date: string
+    hold_days: number
+    selected_analysts: string[]
+    status: 'pending' | 'running' | 'completed' | 'failed' | 'cancelled'
+    error?: string | null
+    total_dates: number
+    completed_dates: number
+    stats?: BacktestStats | null
+    records?: BacktestRecord[]
+    created_at?: string
+    started_at?: string | null
+    finished_at?: string | null
+    updated_at?: string
+}
+
+export interface BacktestListResponse {
+    total: number
+    jobs: BacktestJob[]
+}
+
+export interface BacktestEstimateResponse {
+    total_dates: number
+    dates: string[]
+    max_dates: number
+}
+
+export interface BacktestSubmitResponse {
+    job_id: string
+    status: 'pending'
+}
+
 export interface AnnouncementItem {
     title: string
     detail: string

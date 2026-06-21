@@ -92,6 +92,7 @@ def init_db() -> None:
     """Initialize database tables."""
     Base.metadata.create_all(bind=engine)
     _ensure_report_schema()
+    _ensure_backtest_schema()
     _ensure_user_schema()
 
 
@@ -118,6 +119,21 @@ def _ensure_report_schema() -> None:
                 conn.execute(text("ALTER TABLE reports ADD COLUMN volume_price_report TEXT"))
     except Exception as e:
         logger.error("Failed to ensure report schema: %s", e)
+
+
+def _ensure_backtest_schema() -> None:
+    """Add columns for existing backtest tables without a migration framework."""
+    try:
+        with engine.begin() as conn:
+            columns = {row[1] for row in conn.execute(text("PRAGMA table_info(backtest_records)"))}
+            if not columns:
+                return
+            if "reused_from_job_id" not in columns:
+                conn.execute(text("ALTER TABLE backtest_records ADD COLUMN reused_from_job_id VARCHAR(36)"))
+            if "reused_from_record_id" not in columns:
+                conn.execute(text("ALTER TABLE backtest_records ADD COLUMN reused_from_record_id VARCHAR(36)"))
+    except Exception as e:
+        logger.error("Failed to ensure backtest schema: %s", e)
 
 
 def _ensure_user_schema() -> None:
@@ -318,6 +334,117 @@ class ReportDB(Base):
         }
 
 
+class BacktestJobDB(Base):
+    """Backtest task summary, kept separate from normal analysis reports."""
+
+    __tablename__ = "backtest_jobs"
+
+    id = Column(String(36), primary_key=True, index=True)
+    user_id = Column(String(64), index=True, nullable=False)
+    symbol = Column(String(20), index=True, nullable=False)
+    start_date = Column(String(10), nullable=False)
+    end_date = Column(String(10), nullable=False)
+    hold_days = Column(Integer, default=5, nullable=False)
+    selected_analysts = Column(JSON, nullable=True)
+    status = Column(String(20), default="pending", index=True)
+    error = Column(Text, nullable=True)
+    total_dates = Column(Integer, default=0, nullable=False)
+    completed_dates = Column(Integer, default=0, nullable=False)
+    stats = Column(JSON, nullable=True)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    started_at = Column(DateTime, nullable=True)
+    finished_at = Column(DateTime, nullable=True)
+    updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
+
+    def to_dict(self) -> dict:
+        return {
+            "id": self.id,
+            "job_id": self.id,
+            "user_id": self.user_id,
+            "symbol": self.symbol,
+            "start_date": self.start_date,
+            "end_date": self.end_date,
+            "hold_days": self.hold_days,
+            "selected_analysts": self.selected_analysts or [],
+            "status": self.status,
+            "error": self.error,
+            "total_dates": self.total_dates,
+            "completed_dates": self.completed_dates,
+            "stats": self.stats,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+            "started_at": self.started_at.isoformat() if self.started_at else None,
+            "finished_at": self.finished_at.isoformat() if self.finished_at else None,
+            "updated_at": self.updated_at.isoformat() if self.updated_at else None,
+        }
+
+
+class BacktestRecordDB(Base):
+    """One historical trading-day sample within a backtest task."""
+
+    __tablename__ = "backtest_records"
+
+    id = Column(String(36), primary_key=True, index=True)
+    job_id = Column(String(36), index=True, nullable=False)
+    user_id = Column(String(64), index=True, nullable=False)
+    symbol = Column(String(20), index=True, nullable=False)
+    trade_date = Column(String(10), index=True, nullable=False)
+    status = Column(String(20), default="pending", index=True)
+    error = Column(Text, nullable=True)
+    decision = Column(String(50), nullable=True)
+    direction = Column(String(50), nullable=True)
+    confidence = Column(Integer, nullable=True)
+    target_price = Column(Float, nullable=True)
+    stop_loss_price = Column(Float, nullable=True)
+    entry_price = Column(Float, nullable=True)
+    exit_price = Column(Float, nullable=True)
+    future_return_pct = Column(Float, nullable=True)
+    strategy_return_pct = Column(Float, nullable=True)
+    max_high = Column(Float, nullable=True)
+    min_low = Column(Float, nullable=True)
+    target_hit = Column(Boolean, nullable=True)
+    stop_loss_hit = Column(Boolean, nullable=True)
+    is_correct = Column(Boolean, nullable=True)
+    decision_summary = Column(Text, nullable=True)
+    result_snapshot = Column(JSON, nullable=True)
+    reused_from_job_id = Column(String(36), nullable=True)
+    reused_from_record_id = Column(String(36), nullable=True)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
+
+    __table_args__ = (UniqueConstraint('job_id', 'trade_date', name='uq_backtest_job_trade_date'),)
+
+    def to_dict(self) -> dict:
+        return {
+            "id": self.id,
+            "job_id": self.job_id,
+            "user_id": self.user_id,
+            "symbol": self.symbol,
+            "trade_date": self.trade_date,
+            "status": self.status,
+            "error": self.error,
+            "decision": self.decision,
+            "direction": self.direction,
+            "confidence": self.confidence,
+            "target_price": self.target_price,
+            "stop_loss_price": self.stop_loss_price,
+            "entry_price": self.entry_price,
+            "exit_price": self.exit_price,
+            "future_return_pct": self.future_return_pct,
+            "strategy_return_pct": self.strategy_return_pct,
+            "max_high": self.max_high,
+            "min_low": self.min_low,
+            "target_hit": self.target_hit,
+            "stop_loss_hit": self.stop_loss_hit,
+            "is_correct": self.is_correct,
+            "decision_summary": self.decision_summary,
+            "result_snapshot": self.result_snapshot,
+            "reused_from_job_id": self.reused_from_job_id,
+            "reused_from_record_id": self.reused_from_record_id,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+            "updated_at": self.updated_at.isoformat() if self.updated_at else None,
+        }
+
+
 class UserDB(Base):
     __tablename__ = "users"
 
@@ -478,5 +605,3 @@ class ImportedPortfolioPositionDB(Base):
     __table_args__ = (
         UniqueConstraint('user_id', 'source', 'symbol', name='uq_imported_portfolio_user_source_symbol'),
     )
-
-

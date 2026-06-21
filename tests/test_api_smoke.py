@@ -111,7 +111,7 @@ class TestAnalyzeEndpoint:
     @pytest.fixture(autouse=True)
     def setup(self):
         self.client = _get_client()
-        self.token = _auth(self.client)
+        self.token = _auth_unique(self.client)
         self.headers = {"Authorization": f"Bearer {self.token}"}
 
     def test_dry_run_completes(self):
@@ -212,7 +212,7 @@ class TestChatCompletionsEndpoint:
     @pytest.fixture(autouse=True)
     def setup(self):
         self.client = _get_client()
-        self.token = _auth(self.client)
+        self.token = _auth_unique(self.client)
         self.headers = {"Authorization": f"Bearer {self.token}"}
 
     def test_unrecognizable_stock_returns_error(self):
@@ -313,7 +313,7 @@ class TestRuntimeConfigWarmup:
     @pytest.fixture(autouse=True)
     def setup(self):
         self.client = _get_client()
-        self.token = _auth(self.client)
+        self.token = _auth_unique(self.client)
         self.headers = {"Authorization": f"Bearer {self.token}"}
 
     def test_model_change_schedules_warmup(self):
@@ -744,7 +744,7 @@ class TestScheduledBatchEndpoints:
             coro.close()
             return MagicMock()
 
-        with patch("api.main._run_scheduled_analysis_once", run_once), \
+        with patch("api.main._run_manual_trigger", run_once), \
              patch("api.main._create_tracked_task", side_effect=_close_coro), \
              patch("api.main.cn_today_str", return_value="2026-03-31"), \
              patch("api.main._resolve_scheduled_trade_date", return_value="2026-03-31"):
@@ -764,7 +764,7 @@ class TestScheduledBatchEndpoints:
         assert args[0]["user_id"]
         assert args[1] == "2026-03-31"
         assert args[2] == body["job_id"]
-        assert kwargs == {"mark_schedule_run": False}
+        assert kwargs == {}
 
     def test_batch_trigger_endpoint_queues_selected_tasks_with_position_context(self):
         from api.database import ImportedPortfolioPositionDB, get_db_ctx
@@ -794,7 +794,7 @@ class TestScheduledBatchEndpoints:
             coro.close()
             return MagicMock()
 
-        with patch("api.main._run_scheduled_analysis_once", run_once), \
+        with patch("api.main._run_manual_trigger", run_once), \
              patch("api.main._create_tracked_task", side_effect=_close_coro), \
              patch("api.main.cn_today_str", return_value="2026-03-31"), \
              patch("api.main._resolve_scheduled_trade_date", return_value="2026-03-31"), \
@@ -826,5 +826,5 @@ class TestScheduledBatchEndpoints:
         assert second_args[0]["symbol"] == "600519.SH"
         assert first_args[1] == "2026-03-31"
         assert second_args[1] == "2026-03-31"
-        assert first_kwargs == {"mark_schedule_run": False}
-        assert second_kwargs == {"mark_schedule_run": False}
+        assert first_kwargs == {}
+        assert second_kwargs == {}

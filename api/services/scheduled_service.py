@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session
 
 from api.database import ScheduledAnalysisDB
 
-MAX_SCHEDULED_ITEMS = 10
+MAX_SCHEDULED_ITEMS = 20
 
 # 非交易时间窗口：15:00~次日9:15 允许设置
 VALID_HORIZONS = {"short", "medium"}

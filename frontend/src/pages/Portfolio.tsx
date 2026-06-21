@@ -642,7 +642,7 @@ export default function Portfolio() {
                 <div className="card">
                     <div className="flex items-center gap-2 mb-4">
                         <Clock className="w-5 h-5 text-emerald-500" />
-                        <h2 className="font-semibold text-slate-900 dark:text-slate-100">定时分析 ({scheduled.length}/10)</h2>
+                        <h2 className="font-semibold text-slate-900 dark:text-slate-100">定时分析 ({scheduled.length}/20)</h2>
                     </div>
                     <p className="text-xs text-slate-400 mb-4">每个交易日在设定时间自动执行（允许 20:00~次日 08:00）</p>
 
