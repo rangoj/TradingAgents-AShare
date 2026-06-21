@@ -5,7 +5,6 @@ import Layout from './components/Layout'
 import Dashboard from './pages/Dashboard'
 import Analysis from './pages/Analysis'
 import Reports from './pages/Reports'
-import Backtests from './pages/Backtests'
 import Settings from './pages/Settings'
 import Portfolio from './pages/Portfolio'
 import TrackingBoard from './pages/TrackingBoard'
@@ -59,10 +58,10 @@ function App() {
                   <Route path="/tracking-board" element={<TrackingBoard />} />
                   <Route path="/analysis" element={<Analysis />} />
                   <Route path="/reports" element={<Reports />} />
-                  <Route path="/backtests" element={<Backtests />} />
                   <Route path="/portfolio" element={<Portfolio />} />
                   <Route path="/settings" element={<Settings />} />
                   <Route path="/feedback" element={<Feedback />} />
+                  <Route path="*" element={<Navigate to="/" replace />} />
                 </Routes>
               </Layout>
             </RequireAuth>
